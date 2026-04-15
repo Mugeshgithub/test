@@ -1,101 +1,124 @@
-# HLD: FrugalFrance
+# HLD: ClearSign
 
 ## Architecture Overview
-FrugalFrance is a mobile-first barcode-scanning app backed by a light but resilient cloud platform.  
-On-device we keep a read-only SQLite/LiteDB cache of the ~200 k most-scanned French grocery GTINs with pre-computed loophole scores. When the user scans a barcode, the app tries the local cache first; a miss or stale entry triggers a call to our HTTPS API. In the cloud, an API Gateway fronts a stateless Scan Service that queries a Postgres/Timescale cluster, returns the latest loophole verdict, and records the scan (device-ID, GTIN, timestamp). A Rules Engine micro-service computes scores on new or updated products. Nightly ETL pipelines ingest Open Food Facts, DGCCRF and INCI Beauty CSV/JSON dumps into S3, diff them, and push changes to Postgres + the mobile delta feed. User “report mismatch” submissions are queued in SQS/Kafka for manual triage and, if accepted, feed back into the rules engine.
 
-The entire backend is containerised (AWS Fargate/ECS) with Terraform IaC; one small Fargate service can comfortably handle v1 load and auto-scales horizontally as scans grow.
+ClearSign is a document-ingestion-to-structured-analysis pipeline wrapped in a consumer SaaS shell. A user uploads a PDF or DOCX, the backend extracts clean text, classifies the contract type, chunks it into clause-level segments, sends those chunks through a typed LLM prompt chain, and returns a structured JSON risk report rendered as a scannable UI. The system has four meaningful components: a frontend (upload + report UI), a backend API server (orchestration, auth, billing), a document processing worker (parsing + chunking), and an LLM gateway layer (prompt dispatch, retry logic, structured output parsing). Stripe handles payments. PostgreSQL stores documents, reviews, and user accounts. Redis handles job queuing for async processing. The whole thing is deployable by one developer in 6 weeks on a single cloud provider with no exotic infrastructure — and should be.
 
-## Component Diagram (text)
+---
 
-User → Mobile App  
-    │ (scan)  
-    │ offline hit ➜ Local SQLite cache  
-    │ miss/stale  
-    ▼ HTTPS  
-[API Gateway]  
-    │  
-    ▼  
-[Scan Service (REST)] ───▶ Postgres/TimescaleDB  
-    │                  │  
-    │ enqueue               │  
-    ▼                  ▼  
-[Feedback Queue]  [Rules Engine]  
-                  │  
-                  ▼  
-                Product Scores table  
-                  │  
-Nightly             │  
-ETL / Differs ←──── S3 Raw Dumps ← Open Food Facts, DGCCRF, INCI  
+## Component Diagram
 
-Admin Dashboard → Postgres (readonly)  
-CloudWatch/Datadog for logs & metrics
+```
+User Browser
+    │
+    │ HTTPS
+    ▼
+┌─────────────────────────────────┐
+│         Next.js Frontend        │  (Upload UI, Report View, Dashboard)
+│         (Vercel or Fly.io)      │
+└────────────┬────────────────────┘
+             │ REST / JSON
+             ▼
+┌─────────────────────────────────┐
+│      Backend API Server         │  (Node/Express or Python/FastAPI)
+│      (Fly.io or Railway)        │
+│                                 │
+│  - Auth (JWT + email magic link)│
+│  - Billing (Stripe webhooks)    │
+│  - Document CRUD                │
+│  - Job dispatch                 │
+└──────┬──────────────┬───────────┘
+       │              │
+       ▼              ▼
+┌────────────┐  ┌─────────────────────────────────────┐
+│  PostgreSQL │  │     Document Processing Worker       │
+│  (Supabase  │  │     (same server or separate queue)  │
+│  or Fly.io) │  │                                      │
+└────────────┘  │  1. PDF/DOCX → raw text (pdfplumber  │
+       ▲        │     / python-docx)                    │
+       │        │  2. Contract type classification      │
+       │        │  3. Clause segmentation + chunking    │
+       │        │  4. LLM prompt dispatch (per-chunk)   │
+       │        │  5. Structured JSON assembly          │
+       │        │  6. Risk report written to DB         │
+       │        └──────────────┬──────────────────────┘
+       │                       │
+       │              ┌────────▼────────┐
+       │              │   LLM Gateway   │
+       │              │                 │
+       │              │  OpenAI GPT-4o  │
+       │              │  (primary)      │
+       │              │                 │
+       │              │  Claude 3.5     │
+       │              │  Sonnet         │
+       │              │  (fallback /    │
+       │              │   comparison)   │
+       │              └─────────────────┘
+       │
+       │ (results written back)
+       └──────────────────────────────┐
+                                      │
+                              ┌───────▼──────┐
+                              │  Redis Queue │
+                              │  (BullMQ)    │
+                              │  Job status  │
+                              └──────────────┘
+
+External services:
+  Stripe → billing/webhooks → Backend API
+  ContractsCounsel/Lawfully → upsell deeplink (v1: just a link, no API)
+  PostHog → product analytics
+  Resend/Postmark → transactional email
+```
+
+---
 
 ## Data Flow
-1. User scans barcode.  
-2. App hashes GTIN → looks up in local SQLite; if entry exists & “last_update” ≤ 7 days, return score immediately (<50 ms).  
-3. If miss/stale, app calls /scan?gtin=X with anonymous device_id.  
-4. Scan Service queries Postgres:  
-   a. If product found ‑> return latest score JSON.  
-   b. If not found ‑> enqueue GTIN for background enrichment, return “grey / unknown” to user.  
-5. Response stored in App’s LRU cache.  
-6. User can tap “report mismatch” → POST /feedback {gtin, reason}. Entry pushed to Feedback Queue (SQS).  
-7. ETL job 03:00 CET:  
-   a. Pull full / incremental dumps from each datasource into S3.  
-   b. Diff vs previous snapshot.  
-   c. For changed/new products feed Rules Engine container, which recalculates loophole flags & writes to Postgres.  
-   d. Export delta (GTIN, verdict, last_update) file signed + GZIP.  
-8. Mobile app on launch checks delta manifest; if under 20 MB downloads it to refresh local cache.
+
+### Happy path: User uploads a lease
+
+1. **User uploads PDF** via frontend drag-drop or file picker. File is POST'd as multipart to `/api/documents/upload`. File size validated client-side and server-side (max 10MB, v1).
+
+2. **Backend receives file**, authenticates user (JWT), checks entitlement (free tier: has this user already used their 1 free review this month?). If quota exceeded, return 402 with upgrade prompt. If ok, store raw file in **object storage** (S3 or Supabase Storage), create a `documents` DB record with status `QUEUED`, enqueue a processing job in Redis via BullMQ. Return `{ documentId, status: "processing" }` immediately. Do NOT make the user wait synchronously — LLM calls will take 15–45 seconds for a long contract.
+
+3. **Frontend polls** `/api/documents/:id/status` every 3 seconds (or uses a Supabase Realtime subscription) to show a progress indicator. Acknowledge this is a solved UX problem — show "Analyzing clause 3 of 12..." estimated progress.
+
+4. **Worker picks up job**, fetches raw file from object storage, runs **text extraction**:
+   - PDF: `pdfplumber` (Python) — handles most PDFs. Fallback: `PyMuPDF`. Scanned PDFs (images only) are a known failure mode — see Failure Modes section.
+   - DOCX: `python-docx`. Mostly reliable.
+   - Output: clean UTF-8 string.
+
+5. **Contract type classification**: Send first 2,000 tokens to GPT-4o with a lightweight classification prompt. Returns one of: `lease | employment | nda | freelance | service_agreement | terms_of_service | other`. This costs ~$0.002 per document and takes 1–2 seconds. Cheap, do it.
+
+6. **Clause segmentation**: Chunk the full contract into logical clause units. Strategy:
+   - Primary: regex + heuristic section-header detection (numbered clauses, ALL-CAPS headers). Fast, free.
+   - Secondary: for irregular formatting, use a small LLM call to identify clause boundaries.
+   - Target: 10–40 chunks per document. Each chunk ≤ 800 tokens.
+
+7. **Risk analysis — the core LLM call**: For each chunk, dispatch a typed prompt to GPT-4o:
+   - System prompt: contract-type-specific risk rubric (e.g., for leases: check for auto-renewal traps, landlord entry rights, penalty clauses, security deposit forfeiture conditions, early termination fees)
+   - User message: the clause text
+   - Output schema (JSON mode): `{ clause_title, clause_text_excerpt, risk_level: "HIGH|MEDIUM|LOW|NONE", risk_category, plain_english_summary, why_it_matters, what_to_ask_for }`
+   - **These calls are parallelized** (Promise.all / asyncio.gather with concurrency limit of 5). A 20-clause contract should complete in 10–15 seconds total LLM time after parallelization.
+
+8. **Assembly**: Collect all clause responses, sort by risk_level DESC, write structured `reviews` record to PostgreSQL. Update document status to `COMPLETE`.
+
+9. **Frontend renders report**: User sees a scannable risk dashboard — HIGH flags at top in red, medium in amber, low in green. Each clause card shows: plain-English summary, severity badge, the original clause text (collapsible), and a "What to ask for instead" suggestion. "Book a real lawyer" CTA appears on any HIGH-risk finding.
+
+10. **Document stored**: User can return to any past review from their dashboard. For free tier, reviews expire after 30 days. Pro tier: permanent.
+
+---
 
 ## Key Technical Decisions
+
 | Decision | Choice | Why | Trade-off |
 |---|---|---|---|
-| Database | Postgres + TimescaleDB extension | relational integrity for product meta + time-series weight history; Timescale for efficient shrinkflation queries | Higher memory footprint vs pure KV; need DBA diligence |
-| Mobile cache | SQLite with FTS index | Mature, built-in iOS/Android, easy delta import | 40-60 MB app size; older phones limited storage |
-| Hosting | AWS Fargate + S3 + RDS | Pay-per-second, zero server patching, scales later | Slightly pricier than Hetzner bare-metal at >1 M scans/day |
-| ETL | Python on AWS Batch Spot | Cheap, flexible, cron-like | Cold-start latency; must manage spot terminations |
-| Auth | Anonymous UUID v4 stored in SecureStorage; optional email + Firebase Auth for premium later | Fast v1, no PII | Harder to merge histories if user reinstalls |
-| Barcode scan lib | Google ML Kit on-device | Fast, offline | Adds 5 MB per platform; not OSS |
-
-## External API & Data Source Audit
-| API / Source | What it provides | Free tier limits | Paid tier cost | Coverage gaps | Uptime / reliability | Fallback if unavailable |
-|---|---|---|---|---|---|---|
-| Open Food Facts API + CSV dump | Product fields, GTIN, weight history, ingredients | Free, volunteer-run; rate-limit 100 req/min; CSV dump daily | Donation; no SLA | ~18 % of French SKUs missing weight history; some GTINs duplicated | Community-maintained ~99 % but no formal SLA | Keep last successful dump on S3; mark data stale in UI after 7 days |
-| DGCCRF “Rappel Conso” & fraud rulings CSV | Official recalls & origin fraud caselist | Free; weekly CSV | Free | Only reported/ prosecuted cases; many infractions undetected | Government site; occasional weekend downtime | Cache locally; if >14 days old, suppress origin-fraud flag |
-| INCI Beauty dump | Ingredient origin & eco-claims | Free; monthly JSON | Free | Cosmetics only, not food | Volunteer run | Same caching strategy |
-| Google ML Kit | On-device barcode scanning | Free offline | N/A | None | N/A – offline | Fallback is server-side ZXing but would add latency |
-
-(unverified columns must be checked before building; DGCCRF uptime not documented—PM to confirm)
-
-## Cost Projection
-Assumptions  
-• Average scan payload 1 KB in/out.  
-• 5 scans/user/day (aligned with success metric).  
-• RDS t3.micro for Postgres until 10 k users.  
-• Fargate 0.25 vCPU/0.5 GB, 20 % avg CPU, auto-scale every 5 k concurrent scans.  
-• Data dumps: 1 GB/day on S3.  
-
-| Scale | Users | Key cost drivers | Estimated €/month | Breaks at |
-|---|---|---|---|---|
-| v1 launch | 100 | RDS t3.micro €14, Fargate min one task €18, S3 €1, CloudWatch €5, Data Transfer €1 | ≈ €39 | none |
-| Growth | 1 000 | RDS t3.small €29, Fargate avg 2 tasks €35, S3 €5, transfer €8 | ≈ €77 | RDS IOPS on t-class |
-| Scale | 10 000 | RDS db.t3.medium + 100 GB gp3 €96, Fargate 4 tasks €70, S3 €15, transfer €80 | ≈ €261 | RDS storage & read replica need |
-| Viable | 100 000 | RDS db.r6g.large + 1 read replica €500, Fargate 16 tasks €280, S3 €50, transfer €700 | ≈ €1 530 | cache miss rate grows → need Redis or Dynamo; delta downloads hit app store size limits |
-
-Stays under the €500/mo asked for diffing; whole infra crosses €500 only past 50 k WAU.
-
-## Privacy Architecture
-• Data reaching backend: GTIN, anonymous device UUID, timestamp, optional feedback text.  
-• Logged for analytics: scan count, verdict, latency. Retention 90 days rolling in CloudWatch; aggregated metrics kept.  
-• Never leaves device: camera image, precise GPS, personal identifiers. Enforced by not requesting permissions beyond coarse location.  
-• Sensitive inference risk: dietary habits. Mitigation: store GTINs hashed with HMAC(key) when >30 days old; retain mapping only recent.  
-• GDPR: Using anonymous identifiers → “pseudonymous” data. Support DSAR by deleting UUID rows. Privacy policy must state potential inference.  
-• Government subpoena: RDS holds scan logs; purge >90 d reduces liability.
-
-## Scale Analysis
-1 k users: all fits in single AZ; cache miss rate 30 %; cold starts fine.  
-10 k users: add CloudFront in front of delta files; introduce read replica or enable RDS performance-insights; may add Redis for hot GTINs.  
-100 k users: SQLite cache size ≈ 80 MB; won’t auto-update over cellular easily. Need hierarchical cache (top 50 k on device, rest via API) and CDN for verdicts. Backend moves to Aurora Serverless v2 for bursts.
-
-## Failure Modes
-1. Data source silent schema change — ETL fails, scores freeze. Mitigation: contract tests + alert if no deltas for >24 
+| **Backend language** | Python (FastAPI) | Best-in-class PDF parsing libraries (pdfplumber, PyMuPDF, python-docx) live in Python. LLM SDK quality is parity. Document processing and API in same language reduces context switching. | Slightly more verbose than Node for REST boilerplate. JavaScript devs will feel friction. |
+| **Frontend** | Next.js (App Router) | Full-stack option, good file upload UX primitives, Vercel deployment is trivial. One dev can own it. | App Router has rough edges; RSC adds complexity that's unnecessary in v1. Use Pages Router or keep RSC usage minimal. |
+| **Database** | PostgreSQL via Supabase | Relational model fits (users → documents → reviews → clauses). Supabase gives you auth, storage, and Realtime out of the box, collapsing 3 infrastructure decisions into 1. Row-level security handles multi-tenancy. | Supabase vendor lock-in. At scale, you'll want direct Postgres on RDS. Migration is doable but annoying. |
+| **Job queue** | BullMQ + Redis | Document processing is async and can fail. You need retries, visibility, dead-letter handling. BullMQ is the standard for Node/Python hybrid setups. | Adds Redis as a dependency. Upstash Redis makes this zero-ops at low scale. |
+| **LLM provider** | GPT-4o primary, Claude 3.5 Sonnet secondary | GPT-4o has better JSON mode reliability and faster structured output. Claude is the fallback for rate limit situations and can be toggled per contract type if quality varies. Don't bet on one provider. | Two API keys to manage. Cost monitoring gets more complex. Worth it. |
+| **File storage** | Supabase Storage (S3-compatible) | Co-located with DB, trivial setup, row-level security policies apply. | If you leave Supabase, migration is easy (it's S3-compatible). Non-issue. |
+| **Auth** | Supabase Auth (magic link + Google OAuth) | Magic link removes password management. Google OAuth covers ~70% of target demographic. Supabase Auth integrates with RLS policies so you don't write auth middleware. | Magic links have deliverability failure modes. Always have a fallback (OTP code). |
+| **Payments** | Stripe | Industry standard. Supports subscriptions, one-time payments, webhooks, and customer portal (let users manage their own subscription without you building it). | Stripe's webhook handling is boilerplate you must get right. Use a library or their official guide. |
+| **Hosting** | Fly.io for API + worker, Ver
