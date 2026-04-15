@@ -1,177 +1,170 @@
-# LLD: FrugalFrance – v1 (4-week build)
+# LLD: ClearSign
 
 ## Tech Stack
+
 | Layer | Choice | Version | Reason |
 |---|---|---|---|
-| Mobile | React-Native (Expo SDK 50) | RN 0.73 | 1 code-base, built-in SQLite, camera + ML-Kit modules are pre-integrated |
-| Backend API | Python 3.11 + FastAPI 0.110 | 0.110 | Async, type hints, automatic OpenAPI, <500 LOC to deliver 3 endpoints |
-| Rules / ETL | Python 3.11 + Pandas 2.2 + DuckDB 0.9 | 0.9 | Vectorised diffing, zero external DB in batch job; keeps infra ≤ €500 |
-| DB | Postgres 15 + TimescaleDB 2.13 | 2.13 | Mature, shrinkflation queries need time-series; Timescale adds hypertables |
-| Queue | AWS SQS | latest | Fully-managed, dead-simple for mismatch feedback |
-| Auth | Signed device-UUID (Ed25519) + JWT schematic reserved for premium | N/A | No PII, can be revoked; signature prevents forged UUIDs |
-| Hosting | AWS Elastic Beanstalk Docker single-container + RDS-Postgres | EB 3 | Cheaper & simpler than ECS/Fargate for one service, auto-scales later |
+| Frontend | Next.js (Pages Router) | 14.2 | App Router RSC adds complexity with no v1 payoff. Pages Router is stable, well-documented, and one developer can ship it. Vercel deployment is zero-config. |
+| Backend API | FastAPI | 0.111 | Co-locates with Python document processing workers. Async-native. Auto-generates OpenAPI docs. Pydantic v2 validation is fast and catches malformed LLM output before it hits the DB. |
+| Background Workers | Celery | 5.4 | BullMQ (HLD choice) is Node-native. Since the backend is Python, Celery + Redis is the idiomatic choice. Same language, same deploy unit, no cross-language queue bridging. |
+| Database | PostgreSQL | 16 via Supabase | Relational model is correct here. Supabase bundles auth, row-level security, storage, and Realtime — collapses 4 infrastructure decisions for a 1–2 dev team. |
+| Auth | Supabase Auth | latest | Magic link + Google OAuth. RLS enforces data isolation without custom middleware. |
+| Object Storage | Supabase Storage | latest | S3-compatible. RLS policies apply. Zero additional vendor. |
+| Job Queue / Cache | Redis via Upstash | 7.x | Zero-ops Redis. Celery broker + result backend. Rate limiting state. |
+| LLM — Primary | OpenAI GPT-4o | gpt-4o-2024-08-06 | Best structured output (JSON mode) reliability. Parallel function calling. Pin the model date-string — "gpt-4o" alias drifts. |
+| LLM — Fallback | Anthropic Claude 3.5 Sonnet | claude-3-5-sonnet-20241022 | Provider redundancy. Toggle per contract type if quality diverges. |
+| PDF Parsing | pdfplumber + PyMuPDF | 0.11.1 / 1.24 | pdfplumber for text-layer PDFs. PyMuPDF as fallback for malformed PDFs. Both are battle-tested. |
+| DOCX Parsing | python-docx | 1.1 | Standard. No viable alternative. |
+| Payments | Stripe | stripe-python 10.x | Subscriptions + one-time payments + customer portal. Webhooks handled via FastAPI endpoint. |
+| Email | Resend | resend-python 2.x | Transactional email. Simple API. Good deliverability. Postmark is an equally valid swap. |
+| Analytics | PostHog | posthog-python 3.x / posthog-js 1.x | Product analytics. Self-hostable later if privacy becomes a concern. |
+| Frontend HTTP | Axios | 1.7 | Consistent interceptor pattern for auth headers and error normalization. Could use fetch; Axios wins on retry/interceptor ergonomics at this scale. |
+| Frontend State | Zustand | 4.5 | Lightweight. No boilerplate. React Query handles server state (document polling); Zustand handles UI state (upload progress, modal state). |
+| Frontend Server State | TanStack Query | 5.x | Document status polling, review data fetching, cache invalidation. Replaces manual setInterval polling suggested in HLD. |
+| Hosting — Frontend | Vercel | — | Zero-config Next.js deployment. Edge caching for static assets. |
+| Hosting — API + Worker | Fly.io | — | Single Dockerfile, two process types (API + Celery worker). Cheap at this scale. |
+| Containerization | Docker + Docker Compose | — | Local dev parity. Fly.io deploys from Dockerfile. |
+| Monitoring | Sentry | sentry-sdk 2.x (Python), @sentry/nextjs 8.x | Error tracking in both layers. Captures LLM failures, parsing errors, job failures. |
 
-🏷️  Push-back Applied: The HLD splits “Scan Service” & “Rules Engine” into micro-services. For a 4-week MVP we collapse them into one FastAPI container with a background Celery worker. Fewer deployables, fewer things to monitor.
+---
 
 ## Folder Structure
+
 ```
-frugalfrance/
-├── mobile-app/                 # React-Native (Expo) project
-│   ├── App.tsx                 # Entry; navigation & camera screen
-│   ├── screens/
-│   │   ├── ScannerScreen.tsx   # ML-Kit barcode scan + cache lookup
-│   │   ├── ProductScreen.tsx   # Verdict display
-│   │   └── ReportScreen.tsx    # “report mismatch”
-│   ├── data/
-│   │   ├── sqlite.db           # Pre-bundled 200 k GTIN cache
-│   │   └── delta/              # Incremental cache updates
-│   └── utils/
-│       └── cache.ts            # LRU + stale logic
-├── backend/
-│   ├── Dockerfile
-│   ├── main.py                 # FastAPI app factory
-│   ├── api/
-│   │   ├── routes.py           # /scan, /feedback, /health
-│   │   └── schemas.py          # Pydantic request / response
-│   ├── services/
-│   │   ├── scan_service.py     # GTIN lookup, rate-limit guard
-│   │   ├── rule_engine.py      # shrinkflation/origin/eco logic
-│   │   └── feedback_service.py # enqueue + admin review helper
-│   ├── models/                 # SQLAlchemy ORM
-│   │   ├── base.py
-│   │   ├── product.py
-│   │   ├── loophole_score.py
-│   │   ├── scan_log.py
-│   │   └── mismatch_report.py
-│   ├── tasks/                  # Celery async jobs
-│   │   ├── etl_ingest.py       # nightly dump pull + diff
-│   │   └── recalc_scores.py    # triggered by diff or unknown GTIN
-│   ├── settings.py             # Pydantic-based config loader
-│   └── alembic/                # DB migrations
-└── infra/
-    ├── terraform/              # RDS, SQS, S3, Beanstalk
-    └── monitor/                # CloudWatch alarms, dashboards
-```
-
-## Data Model (Postgres 15)
-1. products  
-   • gtin              VARCHAR(14)  PK  
-   • name              TEXT  
-   • brand             TEXT  
-   • category          TEXT NULL  
-   • created_at        TIMESTAMPTZ DEFAULT now()  
-   • updated_at        TIMESTAMPTZ  
-
-2. weight_history  (Timescale hypertable)  
-   • gtin              VARCHAR(14) FK → products  
-   • recorded_at       TIMESTAMPTZ  
-   • net_weight_g      NUMERIC(6,1)  
-   PK = (gtin, recorded_at)
-
-3. loophole_scores  
-   • gtin              VARCHAR(14) PK  
-   • verdict           verdict_enum  -- red | amber | green | grey  
-   • shrinkflation     BOOLEAN NOT NULL  
-   • origin_mislabel   BOOLEAN NOT NULL  
-   • eco_claim_issue   BOOLEAN NOT NULL  
-   • evidence_json     JSONB         -- links & textual explanation  
-   • computed_at       TIMESTAMPTZ  
-
-4. scans  
-   • id                BIGSERIAL PK  
-   • device_uuid       CHAR(44)  -- Ed25519-signed UUID (base64)  
-   • gtin              VARCHAR(14)  
-   • verdict           verdict_enum  
-   • latency_ms        INT  
-   • scanned_at        TIMESTAMPTZ DEFAULT now()  
-
-5. mismatch_reports  
-   • id                BIGSERIAL PK  
-   • device_uuid       CHAR(44)  
-   • gtin              VARCHAR(14)  
-   • reason            TEXT  
-   • status            status_enum  -- pending | accepted | rejected  
-   • created_at        TIMESTAMPTZ  
-   • reviewed_at       TIMESTAMPTZ NULL  
-   • reviewer_id       TEXT NULL
-
-6. etl_source_files  
-   • id                BIGSERIAL PK  
-   • source            TEXT   -- openfoodfacts | dgccrf | inci  
-   • file_date         DATE  
-   • checksum_sha256   CHAR(64)  
-   • processed_at      TIMESTAMPTZ  
-
-Enums:
-verdict_enum, status_enum
-
-Indexes:
-• weight_history (gtin, recorded_at DESC)  
-• scans (device_uuid, scanned_at DESC)  
-
-## Core Abstractions
-1. ScanService  
-   Responsibility: single public method `get_verdict(gtin, device_uuid)` returning verdict & details.  
-   Why: centralised rate-limit, logging, and cache layer—mobile & admin tools must yield identical scores.
-
-2. RuleEngine  
-   Responsibility: stateless function `score_product(ProductSnapshot) -> LoopholeScore`.  
-   Why: pure, unit-testable; can later be spawned into its own micro-service or Lambda with zero refactor.
-
-3. ETLJob (Ingest)  
-   Responsibility: download dump, store on S3, diff via DuckDB SQL, push changed GTINs to Celery queue.  
-   Why: decouples ingestion schedule from scoring throughput; isolates parsing quirks per data source.
-
-4. DeviceUUIDVerifier  
-   Responsibility: verify Ed25519 signature once per request.  
-   Why: prevents malicious scripts from faking millions of UUIDs; keeps rate-limit meaningful.
-
-## Security & Rate Limiting
-Authentication  
-• Each app install generates UUIDv4 → signed server-held Ed25519 private key.  
-• Mobile attaches header `X-Device-ID: <uuid>.<signatureBase64>`.  
-• Backend verifies signature; rejects on failure (HTTP 401).
-
-Rate Limiting  
-• Library: `slowapi` for FastAPI, Redis-backed (ElastiCache t4g.small)  
-• Limits:  
-  - 30 requests / minute per device UUID  
-  - 1000 requests / day per IP (catches rotated UUID attacks)  
-• On limit breach: HTTP 429 with `Retry-After`; **fail closed** (no score).
-
-Transport & Storage  
-• All traffic TLS 1.2+.  
-• RDS encryption at rest (AES-256); S3 buckets SSE-S3.  
-• weight_history & loophole_scores non-personal.  
-• `device_uuid` salted SHA-256 in scans table after 90 days via scheduled DB job.
-
-Data-minimisation  
-• Camera frame never leaves device.  
-• No precise GPS collected—only coarse supermarket GEO pulled from France open dataset, entirely client-side.
-
-## Coding Standards
-1. Naming: snake_case for Python, camelCase for TypeScript; DB columns lowercase with underscores.  
-2. Error handling: Every API route returns RFC 7807 Problem JSON on errors; never expose stack trace.  
-3. Linting / CI: `ruff + mypy --strict` for Python; `eslint + typescript --noImplicitAny` for RN. Test coverage gate 80 %.
-
-## What NOT to Abstract Yet
-• Multi-tenant data partitions — unnecessary until enterprise white-label becomes real.  
-• Pluggable datastore interface — Postgres is fine; swapping now wastes time.  
-• Premium subscription flow — stub JWT claims but don’t build payment integration this sprint.
-
-## Pushback on HLD
-1. Micro-services for v1 add AWS Fargate, IAM roles, extra CI pipelines—burns week 3. A single FastAPI + Celery worker in one Docker image is enough. Split later.  
-2. 200 k GTIN SQLite (~80 MB) may exceed OTA download quota. Compress with zstd, ship only top 50 k (≈18 MB) plus delta API; upgrade in v2.  
-3. TimescaleDB good call, but ensure RDS-Custom supports extensions; regular RDS-Postgres does not. Alternative: self-host Timescale on EC2 or drop to plain Postgres and compute 12-month diffs in pipeline.  
-4. Terraform for full infra is fine, but EB environments emit their own CloudFormation; double IaC causes drift. Keep Terraform for RDS/S3/Redis only.
-
-## Instructions for Programmer
-1. First file: `backend/settings.py` (Pydantic BaseSettings). Every module imports config; CI, tests and Docker all depend on it.  
-2. Trickiest part: shrinkflation detection. Edge cases: weight change due to seasonal promotion packs; ignore changes <10 % or lasting <30 days. Unit-tests with fixtures from Open Food Facts.  
-3. Gotchas:  
-   • EAN-8 barcodes must be left-padded to EAN-13 before DB lookup.  
-   • Some DGCCRF rows list multiple GTINs in one cell ↔ split during ETL.  
-   • Device clocks may be wrong; use server time for scans.  
-4. Defer: admin reviewer UI; for now accept mismatch via psql or Retool. Payment & premium gating postponed until MAU > 5000.
-
-Done – this blueprint is executable, lean, and keeps the team inside 4-week scope while leaving growth levers open.
+clearsign/
+│
+├── frontend/                          # Next.js 14 (Pages Router)
+│   ├── pages/
+│   │   ├── _app.tsx                   # Global providers: QueryClient, PostHog, Sentry
+│   │   ├── _document.tsx              # HTML shell
+│   │   ├── index.tsx                  # Landing page / marketing
+│   │   ├── login.tsx                  # Magic link + Google OAuth
+│   │   ├── dashboard.tsx              # User's document history
+│   │   ├── upload.tsx                 # Upload flow (drag-drop + file picker)
+│   │   ├── review/
+│   │   │   └── [documentId].tsx       # Risk report view
+│   │   └── api/
+│   │       └── auth/
+│   │           └── [...supabase].ts   # Supabase Auth callback handler
+│   ├── components/
+│   │   ├── upload/
+│   │   │   ├── DropZone.tsx           # Drag-drop file input, file type + size validation
+│   │   │   ├── UploadProgress.tsx     # Progress indicator during analysis
+│   │   │   └── ContractTypeSelector.tsx  # Manual override for contract type
+│   │   ├── review/
+│   │   │   ├── RiskSummaryCard.tsx    # Top-level counts: X HIGH, Y MEDIUM, Z LOW
+│   │   │   ├── ClauseCard.tsx         # Individual clause: severity badge, summary, collapsible original text
+│   │   │   ├── SeverityBadge.tsx      # HIGH/MEDIUM/LOW/NONE styled chip
+│   │   │   ├── DisclaimerBanner.tsx   # Mandatory, un-dismissable legal disclaimer — see Security section
+│   │   │   └── LawyerUpsellCTA.tsx    # Shown on HIGH-risk findings; links to ContractsCounsel
+│   │   ├── dashboard/
+│   │   │   ├── DocumentList.tsx       # Paginated list of past reviews
+│   │   │   └── DocumentCard.tsx       # Status, contract type, date, risk summary
+│   │   ├── billing/
+│   │   │   ├── PricingTable.tsx       # Free / Pro / Per-doc plans
+│   │   │   └── ManageBillingButton.tsx  # Opens Stripe Customer Portal
+│   │   └── shared/
+│   │       ├── Navbar.tsx
+│   │       ├── LoadingSpinner.tsx
+│   │       ├── ErrorBoundary.tsx
+│   │       └── Modal.tsx
+│   ├── hooks/
+│   │   ├── useDocumentStatus.ts       # TanStack Query polling hook — polls until COMPLETE or FAILED
+│   │   ├── useUpload.ts               # Upload mutation + optimistic state
+│   │   └── useUser.ts                 # Supabase Auth session wrapper
+│   ├── lib/
+│   │   ├── supabaseClient.ts          # Browser Supabase client (anon key only)
+│   │   ├── apiClient.ts               # Axios instance with auth header injection
+│   │   └── constants.ts               # Risk levels, contract types, plan limits
+│   ├── types/
+│   │   └── index.ts                   # Shared TypeScript types matching backend Pydantic schemas
+│   ├── styles/
+│   │   └── globals.css                # Tailwind base
+│   ├── public/
+│   ├── .env.local                     # NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, NEXT_PUBLIC_API_URL
+│   ├── next.config.js
+│   ├── tailwind.config.js
+│   ├── tsconfig.json
+│   └── package.json
+│
+├── backend/                           # Python FastAPI + Celery
+│   ├── app/
+│   │   ├── main.py                    # FastAPI app factory, middleware registration, router mounting
+│   │   ├── config.py                  # Pydantic Settings — reads all env vars, single source of truth
+│   │   ├── dependencies.py            # FastAPI Depends() functions: get_current_user, require_pro, check_quota
+│   │   │
+│   │   ├── routers/
+│   │   │   ├── documents.py           # POST /documents/upload, GET /documents, GET /documents/{id}/status
+│   │   │   ├── reviews.py             # GET /reviews/{document_id} — returns full structured report
+│   │   │   ├── billing.py             # POST /billing/checkout, POST /billing/portal, POST /billing/webhook
+│   │   │   └── health.py              # GET /health — liveness probe for Fly.io
+│   │   │
+│   │   ├── services/
+│   │   │   ├── document_service.py    # Business logic: create document record, check quota, dispatch job
+│   │   │   ├── review_service.py      # Fetch + format review data for API response
+│   │   │   ├── billing_service.py     # Stripe checkout session, portal session, webhook event handling
+│   │   │   └── entitlement_service.py # "Can this user submit a review?" — tier, quota, expiry logic
+│   │   │
+│   │   ├── workers/
+│   │   │   ├── celery_app.py          # Celery app init, broker/backend config, task routing
+│   │   │   ├── tasks.py               # process_document task — orchestrates the full pipeline
+│   │   │   └── pipeline/
+│   │   │       ├── extractor.py       # PDF/DOCX → clean UTF-8 text
+│   │   │       ├── classifier.py      # LLM contract type classification
+│   │   │       ├── segmenter.py       # Text → clause chunks
+│   │   │       ├── analyzer.py        # LLM risk analysis per chunk (parallelized)
+│   │   │       └── assembler.py       # Clause results → structured DB records
+│   │   │
+│   │   ├── llm/
+│   │   │   ├── gateway.py             # Provider abstraction: route to GPT-4o or Claude, retry logic, fallback
+│   │   │   ├── prompts/
+│   │   │   │   ├── classification.py  # System + user prompt for contract type detection
+│   │   │   │   ├── segmentation.py    # Prompt for irregular clause boundary detection
+│   │   │   │   └── risk_rubrics/
+│   │   │   │       ├── base.py        # Shared risk analysis prompt scaffold
+│   │   │   │       ├── lease.py       # Lease-specific rubric: auto-renewal, landlord entry, penalties
+│   │   │   │       ├── employment.py  # Employment: non-compete, IP assignment, at-will carve-outs
+│   │   │   │       ├── nda.py         # NDA: scope, duration, exclusions, jurisdiction
+│   │   │   │       ├── freelance.py   # Freelance: payment terms, IP, kill fees, IP reversion
+│   │   │   │       ├── service_agreement.py
+│   │   │   │       ├── terms_of_service.py
+│   │   │   │       └── other.py       # Generic fallback rubric
+│   │   │   └── schemas.py             # Pydantic models for LLM output validation
+│   │   │
+│   │   ├── models/
+│   │   │   ├── user.py                # User — mirrors Supabase auth.users with extended profile
+│   │   │   ├── document.py            # Document entity
+│   │   │   ├── review.py              # Review entity
+│   │   │   └── clause.py             # ClauseAnalysis entity
+│   │   │
+│   │   ├── db/
+│   │   │   ├── session.py             # SQLAlchemy async engine + session factory
+│   │   │   └── migrations/            # Alembic migrations
+│   │   │       ├── env.py
+│   │   │       └── versions/          # Migration files (never edit, only add)
+│   │   │
+│   │   └── utils/
+│   │       ├── storage.py             # Supabase Storage upload/download wrappers
+│   │       ├── rate_limiter.py        # Redis-backed sliding window rate limiter
+│   │       └── errors.py              # Custom exception classes + FastAPI exception handlers
+│   │
+│   ├── tests/
+│   │   ├── unit/
+│   │   │   ├── test_extractor.py      # Parser unit tests with real PDF fixtures
+│   │   │   ├── test_segmenter.py
+│   │   │   ├── test_classifier.py     # Mock LLM calls
+│   │   │   └── test_entitlement.py    # Quota + tier logic — no external deps, must be fast
+│   │   ├── integration/
+│   │   │   ├── test_upload_flow.py    # Full upload → queue → mock worker → status check
+│   │   │   └── test_billing_webhook.py  # Stripe webhook event replay tests
+│   │   └── fixtures/
+│   │       ├── sample_lease.pdf
+│   │       ├── sample_nda.docx
+│   │       └── llm_responses/         # Canned LLM responses for deterministic tests
+│   │
+│   ├── Dockerfile                     # Multi-stage: base → api (uvicorn) / worker (celery)
+│   ├── requirements.txt
+│   ├── alembic.ini
+│   └── .env                           # Never committed. See .env.example
+│
+├
