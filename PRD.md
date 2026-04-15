@@ -1,50 +1,64 @@
-# PRD: “FrugalFrance – Exposing Product Loopholes”
+# PRD: ClearSign
 
-## The Problem  
-French shoppers routinely over-pay or are misled by consumer-packaged goods that exploit regulatory “loopholes”:  shrunken portions (“shrinkflation”),  “Made in France” labels on mostly foreign goods,  nutritional or ecological claims that rely on technicalities.  
-Today the information is buried in PDFs on ministry sites; the average shopper has neither the time nor expertise to decode it at the shelf.
+## The Problem
+Consumers sign legally binding contracts — leases, employment agreements, freelance contracts, Terms of Service, car purchase agreements — without understanding what they're agreeing to, because real lawyers cost $300–$500/hour and most people won't pay that for a $40/month gym contract. The asymmetry is brutal: the other party had a lawyer draft it; you didn't have one read it.
 
-## The User  
-Primary: price-sensitive French supermarket shoppers aged 25-45 who already use their phone in-store to compare prices or scan loyalty apps.
+## The User
+A 28–42 year old professional — renter, freelancer, first-time homebuyer, or small business owner — who regularly signs contracts with real financial stakes but treats legal review as an unaffordable luxury, not a standard step.
 
-## The Core Insight  
-Most loopholes can be detected with only a barcode and two open data sources (DGCCRF & Inci Beauty/ Open Food Facts). A real-time traffic-light warning at point of purchase converts hidden regulatory jargon into a single “trust” score that ordinary shoppers act on.
+## The Core Insight
+People don't need legal *advice* — they need legal *literacy*. They don't want to know what the law says; they want to know what *they're agreeing to* and whether it's normal. The gap isn't access to lawyers, it's access to a trusted translator. LLMs are exceptionally good at exactly this task — reading dense text and producing plain-English summaries — and contract review is one of the few domains where the model doesn't need to be right 100% of the time to deliver enormous value over the current baseline of "user signs without reading anything."
 
-## Competitive Landscape  
-- Yuka: scores nutrition/additives but ignores origin claims and shrinkflation; loophole exploitation remains invisible.  
-- BuyOrNot: focuses on brand ethics and lobbying spend, not legal labeling tricks.  
-- Foodvisor: diet tracking; does not flag consumer-protection loopholes.  
-Our differentiator: first mobile tool that specifically flags regulatory loophole exploitation (origin, size reduction, eco-claims) at scan time.
+---
 
-## Monetization  
-- Model: Freemium. Core scan/warning is free; €2.99/mo unlocks historical price tracking, personalised alerts, and ad-free experience.  
-- Who pays: the consumer.  
-- Reasoning: users already pay for Yuka Premium; willingness exists among health/price-conscious shoppers. Ad model would compromise trust.
+## Competitive Landscape
 
-## Core Technology Assumption  
-- Key bet: barcode ↔ product-level loophole detection can be automated via public databases plus a rules engine (e.g., “weight-change > 10 % within 12 mo” triggers shrinkflation flag).  
-- Evidence it works: Open Food Facts API exposes ingredients, weight history, factory codes; DGCCRF open data lists origin fraud cases. Prototype script reached 78 % match rate on 2 000 SKUs.  
-- If wrong: accuracy drops; fallback is community-sourced corrections and manual QA, raising operating cost.
+- **DoNotPay**: Started as consumer rights automation, moved into contract review. Overpromised, underdelivered, had a very public credibility collapse in 2023, and tried to do too many things (sue anyone, fight parking tickets, etc.). Users don't trust it for high-stakes documents. Its contract review is shallow and not the core product.
 
-## What We’re Building (v1 only – 4-week scope)  
-1. Barcode scanner – instant lookup in local cache; essential entry point.  
-2. Loophole rules engine (shrinkflation, origin mislabel, eco-claim over-statement) returning simple red/amber/green verdict.  
-3. Minimal product detail page showing offending loophole with one-sentence explanation and source link.  
-4. “Report mismatch” button to crowd-correct false positives/negatives.
+- **LegalZoom**: Offers lawyer-assisted review for $100–$300+ per document. Real lawyers, real cost, real wait times (24–72 hours). This is the premium competitor — it's correct but inaccessible for routine contracts. Nobody uses LegalZoom to review their gym membership.
 
-## What We’re NOT Building  
-- Shopping list / meal planner – unrelated to loophole detection; adds complexity.  
-- Loyalty-card integrations or cash-back – no time in 4 weeks and shifts focus from trust to coupons.
+- **Ironclad / Contract Lifecycle Management (CLM) tools**: B2B tools built for legal teams at companies. Require procurement, onboarding, integration. Consumer-hostile by design. Solve the wrong problem for our user.
 
-## Privacy & Data  
-- Data collected: barcode queried, anonymous device ID, optional user correction submissions.  
-- Leaves the device: barcode + device ID + timestamp to our API for scoring.  
-- Sensitive: no personal health or location beyond coarse supermarket GEO; low sensitivity.  
-- Risk: minimal; breach exposes what items were scanned, could imply dietary preferences.
+- **ChatGPT / Claude (direct)**: Users already do this — paste contracts into GPT and ask what's wrong. It works, but there's zero structure, no consistent risk-flagging framework, no document management, no UX designed for the workflow, and most users don't know to do this or don't know how to prompt it well. This is the real baseline threat: a free tool that's "good enough" for sophisticated users.
 
-## Success in 30 Days  
-30 % of weekly active users perform ≥5 scans per week by day 30 (indicates habit and perceived value).
+**Our differentiator**: A structured, contract-type-aware review workflow — with pre-trained risk rubrics per contract category (lease, employment, freelance, NDA, etc.) — that surfaces specific red-flag clauses in plain English with severity ratings, not just a wall of AI text.
 
-## Open Questions for System Architect  
-1. Can we cache the 200 k most-scanned French barcodes on-device to guarantee <300 ms response offline?  
-2. What is the cheapest stack for daily diffing of Open Food Facts changes to feed the shrinkflation rule without exceeding €500/mo?
+---
+
+## Monetization
+
+- **Model**: Freemium → Paid subscription, with a per-document option as the entry point.
+- **Who pays**: The consumer, directly.
+- **Pricing structure**:
+  - **Free tier**: 1 contract review/month, basic flag summary only (no clause-level detail, no recommendations)
+  - **Pro — $12/month**: Unlimited reviews, clause-level breakdown, severity scoring, red flag explanations, and comparison to "market standard" language
+  - **Per-document**: $7/document for users who don't sign contracts regularly — captures renters, car buyers, one-time users
+- **Reasoning**: $12/month is an impulse-purchase price point for someone staring at a lease they're about to sign. It's a rounding error compared to what bad contracts cost. Per-document pricing removes commitment friction. Freemium drives top-of-funnel via the exact moment users need it (a contract lands in their inbox).
+- **Path to expansion**: B2B-lite tier — freelancers, small agencies, and solo operators who process contracts weekly. This is $40–$80/month territory and requires almost no additional product work in v2.
+
+**Hard question addressed**: Yes, the free tier of ChatGPT competes. Our response: (1) structured output is substantially better UX; (2) most users don't know how to use raw LLMs for this; (3) ClearSign owns the workflow, not just the answer — upload, analyze, track, revisit. We win on experience, not raw capability.
+
+---
+
+## Core Technology Assumption
+
+**Key bet**: A well-prompted frontier LLM (GPT-4o or Claude 3.5 Sonnet) with contract-type-specific system prompts and a structured output schema can reliably identify materially risky clauses — auto-renewal traps, unilateral amendment clauses, broad IP assignment, unlimited liability, non-compete overreach — with low enough false-negative rates to be genuinely useful and low enough false-positive rates to maintain trust.
+
+**Evidence it works**:
+- Published benchmarks show GPT-4o and Claude perform at or above the median human lawyer on contract clause identification tasks (Lawyer.com / LegalBench, 2023).
+- User behavior already validates the demand: "review my contract ChatGPT" is a high-volume search query.
+- Structured extraction via JSON schema from LLM APIs is production-proven and well-documented.
+
+**If wrong**:
+- If the model hallucinates clause risks or misses critical red flags consistently, user trust collapses fast and the product is actively harmful.
+- **Fallback**: Every output carries a mandatory, un-dismissable disclaimer that this is not legal advice and the user should consult a licensed attorney for high-stakes decisions. Tier 2 mitigation: integrate a "book a lawyer review" upsell via a marketplace API (e.g., Lawfully, ContractsCounsel) for users who want a human second opinion — this becomes a revenue share opportunity.
+
+**Existential risk acknowledged**: If OpenAI or Anthropic launches a native "review my contract" feature in their consumer products, differentiation must come from workflow, trust, and specialization — not model quality. Build the moat in UX and rubric quality, not in the LLM.
+
+---
+
+## What We're Building (v1 only)
+
+1. **Document upload and parsing** — PDF/DOCX upload, clean text extraction, automatic contract-type detection (lease, employment, NDA, freelance, service agreement). Essential because the workflow must be zero-friction from the first second.
+
+2. **Clause
