@@ -2,15 +2,12 @@ import requests
 import csv
 import time
 import re
-import json
-from dataclasses import dataclass, field, asdict
-from typing import Optional
+from dataclasses import dataclass, asdict
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
-GOOGLE_API_KEY = "YOUR_GOOGLE_MAPS_API_KEY"   # https://console.cloud.google.com
+GOOGLE_API_KEY = "AIzaSyCeGKMDsNuCm--VGUs3DcI9ElFZxL1y6fo"
 
 SEARCHES = [
-    # Therapists / wellness solo practitioners
     "ostéopathe Paris",
     "sophrologue Paris",
     "naturopathe Paris",
@@ -19,125 +16,103 @@ SEARCHES = [
     "coach de vie Paris",
     "psychologue libéral Paris",
     "acupuncteur Paris",
-    # Interior design / décor
     "architecte d'intérieur Paris",
     "décorateur intérieur Paris",
 ]
 
-PLACES_URL  = "https://maps.googleapis.com/maps/api/place/textsearch/json"
-DETAILS_URL = "https://maps.googleapis.com/maps/api/place/details/json"
+SEARCH_URL  = "https://places.googleapis.com/v1/places:searchText"
 OUTPUT_FILE = "paris_leads.csv"
+
+FIELD_MASK = ",".join([
+    "places.id",
+    "places.displayName",
+    "places.formattedAddress",
+    "places.nationalPhoneNumber",
+    "places.websiteUri",
+    "places.googleMapsUri",
+    "nextPageToken",
+])
 
 # ── DATA MODEL ────────────────────────────────────────────────────────────────
 @dataclass
 class Lead:
-    name:            str  = ""
-    sector:          str  = ""
-    address:         str  = ""
-    phone:           str  = ""
-    website:         str  = ""
-    email:           str  = ""
-    google_maps_url: str  = ""
-    score:           str  = ""
-    score_reason:    str  = ""
-
-# ── GOOGLE MAPS ───────────────────────────────────────────────────────────────
-def search_places(query: str) -> list[dict]:
-    """Pull all pages of results for a query."""
-    results, params = [], {"query": query, "key": GOOGLE_API_KEY, "language": "fr"}
-    while True:
-        data = requests.get(PLACES_URL, params=params, timeout=10).json()
-        results.extend(data.get("results", []))
-        token = data.get("next_page_token")
-        if not token:
-            break
-        time.sleep(2)           # Google requires a short delay before using the token
-        params = {"pagetoken": token, "key": GOOGLE_API_KEY}
-    return results
-
-
-def get_details(place_id: str) -> dict:
-    """Fetch name, address, phone, website, maps URL for one place."""
-    params = {
-        "place_id": place_id,
-        "fields":   "name,formatted_address,formatted_phone_number,website,url",
-        "key":      GOOGLE_API_KEY,
-        "language": "fr",
-    }
-    return requests.get(DETAILS_URL, params=params, timeout=10).json().get("result", {})
-
+    name:            str = ""
+    sector:          str = ""
+    address:         str = ""
+    phone:           str = ""
+    website:         str = ""
+    email:           str = ""
+    google_maps_url: str = ""
+    score:           str = ""
+    score_reason:    str = ""
 
 # ── EMAIL FINDER ──────────────────────────────────────────────────────────────
 EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
+SKIP_PREFIXES = ("noreply", "no-reply", "support", "admin", "webmaster",
+                 "newsletter", "abuse", "postmaster")
 
-SKIP_EMAILS = {
-    # Generic / non-owner addresses to ignore
-    "contact@", "info@", "hello@", "bonjour@", "admin@",
-    "support@", "noreply@", "no-reply@",
-}
-
-def scrape_email(website: str) -> str:
-    """
-    Try homepage then /contact to find a real email address.
-    Returns first non-generic email found, or empty string.
-    """
-    if not website:
+def find_email(url: str) -> str:
+    if not url:
         return ""
-
-    base = website.rstrip("/")
-    pages_to_try = [base, f"{base}/contact", f"{base}/contact.html", f"{base}/nous-contacter"]
-
-    for url in pages_to_try:
+    base = url.rstrip("/")
+    for path in ["", "/contact", "/nous-contacter", "/contact.html"]:
         try:
-            r = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+            r = requests.get(base + path, timeout=7,
+                             headers={"User-Agent": "Mozilla/5.0"})
             if r.status_code != 200:
                 continue
-            emails = EMAIL_RE.findall(r.text)
-            for email in emails:
-                # Skip images, CSS files, common noise
-                if any(ext in email for ext in [".png", ".jpg", ".gif", ".css", ".js"]):
+            for email in EMAIL_RE.findall(r.text):
+                el = email.lower()
+                if any(el.startswith(s) for s in SKIP_PREFIXES):
                     continue
-                # Prefer specific (non-generic) addresses
-                if not any(email.startswith(skip) for skip in SKIP_EMAILS):
-                    return email.lower()
-            # Fall back to first generic one if nothing better found
-            if emails:
-                return emails[0].lower()
+                if any(x in el for x in [".png", ".jpg", ".js", ".css"]):
+                    continue
+                return el
         except Exception:
-            continue
+            pass
     return ""
 
-
 # ── SCORING ───────────────────────────────────────────────────────────────────
-# Keywords in the website URL that signal the "site" is just a directory
-DIRECTORY_DOMAINS = [
-    "facebook.com", "instagram.com", "doctolib.fr",
-    "pagesjaunes.fr", "linkedin.com", "google.com",
-    "yelp.fr", "annuaire", "bottin", "118",
-]
+SOCIAL_DIRS = ["facebook.", "instagram.", "doctolib.", "linkedin.",
+               "pagesjaunes.", "yelp.", "google.", "annuaire."]
 
 def score(website: str, email: str) -> tuple[str, str]:
-    """
-    HIGH   – No real website + we have an email     → reach out now
-    HIGH   – No real website, no email              → find on social / phone
-    MEDIUM – Has basic website + we found email     → pitch a redesign
-    LOW    – Has website but couldn't find email    → lower priority
-    SKIP   – Directory/social only counts as no-site (still HIGH)
-    """
-    is_directory = website and any(d in website for d in DIRECTORY_DOMAINS)
-    has_real_site = website and not is_directory
-
+    has_real_site = website and not any(d in website for d in SOCIAL_DIRS)
     if not has_real_site:
-        if email:
-            return "HIGH",   "No website — email found ✓"
-        else:
-            return "HIGH",   "No website — reach via phone/social"
-    else:
-        if email:
-            return "MEDIUM", "Has site but email found — pitch upgrade"
-        else:
-            return "LOW",    "Has site — no easy email found"
+        return (("HIGH",   "No website — email found, send now")    if email
+                else ("HIGH",  "No website — contact by phone/social"))
+    return     (("MEDIUM", "Has site — email found, pitch redesign") if email
+                else ("LOW",   "Has site — no email found"))
 
+# ── PLACES API (NEW) ──────────────────────────────────────────────────────────
+def search_places(query: str) -> list[dict]:
+    results   = []
+    page_token = None
+    headers   = {
+        "Content-Type":    "application/json",
+        "X-Goog-Api-Key":  GOOGLE_API_KEY,
+        "X-Goog-FieldMask": FIELD_MASK,
+    }
+
+    while True:
+        body = {"textQuery": query, "languageCode": "fr", "pageSize": 20}
+        if page_token:
+            body["pageToken"] = page_token
+
+        resp = requests.post(SEARCH_URL, json=body, headers=headers, timeout=10)
+        data = resp.json()
+
+        if "error" in data:
+            print(f"  API error: {data['error'].get('message', data['error'])}")
+            break
+
+        results.extend(data.get("places", []))
+        page_token = data.get("nextPageToken")
+        if not page_token:
+            break
+        time.sleep(2)
+
+    return results
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 def main():
@@ -147,56 +122,62 @@ def main():
     for query in SEARCHES:
         print(f"\n🔍  {query}")
         places = search_places(query)
+        print(f"    {len(places)} results from API")
 
-        for place in places:
-            pid = place["place_id"]
+        for p in places:
+            pid = p.get("id", "")
             if pid in seen:
                 continue
             seen.add(pid)
 
-            details = get_details(pid)
-            time.sleep(0.15)    # stay within free-tier rate limits
-
-            website = details.get("website", "")
-            email   = scrape_email(website)
+            website = p.get("websiteUri", "")
+            email   = find_email(website)
             s, reason = score(website, email)
 
             lead = Lead(
-                name            = details.get("name", ""),
+                name            = p.get("displayName", {}).get("text", ""),
                 sector          = query,
-                address         = details.get("formatted_address", ""),
-                phone           = details.get("formatted_phone_number", ""),
+                address         = p.get("formattedAddress", ""),
+                phone           = p.get("nationalPhoneNumber", ""),
                 website         = website,
                 email           = email,
-                google_maps_url = details.get("url", ""),
+                google_maps_url = p.get("googleMapsUri", ""),
                 score           = s,
                 score_reason    = reason,
             )
             leads.append(lead)
-
             icon = {"HIGH": "🔥", "MEDIUM": "🟡", "LOW": "⚪"}.get(s, "")
             print(f"  {icon} [{s}] {lead.name}")
             print(f"       📍 {lead.address}")
             print(f"       📞 {lead.phone or '—'}  |  🌐 {lead.website or 'NO WEBSITE'}  |  ✉️  {lead.email or '—'}")
 
-    # ── Export CSV ─────────────────────────────────────────────────────────
+        time.sleep(1)
+
+    if not leads:
+        print("\n❌  No leads collected.")
+        return
+
+    # Sort HIGH first
+    order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+    leads.sort(key=lambda l: order.get(l.score, 9))
+
     with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=asdict(leads[0]).keys())
         writer.writeheader()
         writer.writerows(asdict(l) for l in leads)
 
-    # ── Summary ────────────────────────────────────────────────────────────
-    high   = sum(1 for l in leads if l.score == "HIGH")
-    medium = sum(1 for l in leads if l.score == "MEDIUM")
-    low    = sum(1 for l in leads if l.score == "LOW")
+    high    = sum(1 for l in leads if l.score == "HIGH")
+    medium  = sum(1 for l in leads if l.score == "MEDIUM")
+    low     = sum(1 for l in leads if l.score == "LOW")
+    w_email = sum(1 for l in leads if l.email)
 
-    print(f"\n{'─'*50}")
-    print(f"✅  Done.  {len(leads)} total leads saved to {OUTPUT_FILE}")
-    print(f"   🔥 HIGH   : {high}")
-    print(f"   🟡 MEDIUM : {medium}")
-    print(f"   ⚪ LOW    : {low}")
-    print(f"{'─'*50}")
-
+    print(f"\n{'═'*55}")
+    print(f"✅  {len(leads)} leads saved to {OUTPUT_FILE}")
+    print(f"   🔥 HIGH   : {high}  (no website)")
+    print(f"   🟡 MEDIUM : {medium}  (has site, email found)")
+    print(f"   ⚪ LOW    : {low}  (has site, no email)")
+    print(f"   ✉️  With email : {w_email}")
+    print(f"{'═'*55}")
 
 if __name__ == "__main__":
     main()
