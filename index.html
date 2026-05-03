@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dr. Aryan Mehta – Premier Medical Care</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav class="nav" id="nav">
+    <div class="nav__logo">
+      <span class="nav__pulse"></span>
+      MedCare
+    </div>
+    <ul class="nav__links">
+      <li><a href="#hero">Home</a></li>
+      <li><a href="#about">About</a></li>
+      <li><a href="#services">Services</a></li>
+      <li><a href="#testimonials">Patients</a></li>
+      <li><a href="#contact">Contact</a></li>
+    </ul>
+  </nav>
+
+  <!-- SECTION 1 — HERO -->
+  <section class="section" id="hero">
+    <div class="hero__bg-circles">
+      <div class="circle circle--1"></div>
+      <div class="circle circle--2"></div>
+      <div class="circle circle--3"></div>
+    </div>
+    <div class="hero__content">
+      <p class="hero__tag">Trusted Healthcare Since 2005</p>
+      <h1 class="hero__title">
+        <span class="word">Your</span>
+        <span class="word">Health,</span>
+        <span class="word accent">Our</span>
+        <span class="word accent">Priority.</span>
+      </h1>
+      <p class="hero__sub">Expert care with a compassionate touch. Book your appointment and take the first step toward better health today.</p>
+      <div class="hero__actions">
+        <a href="#contact" class="btn btn--primary">Book Appointment</a>
+        <a href="#about" class="btn btn--outline">Meet the Doctor</a>
+      </div>
+    </div>
+    <div class="hero__visual">
+      <div class="stethoscope-wrap">
+        <svg class="stethoscope-icon" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="60" cy="60" r="58" stroke="#00B4D8" stroke-width="2" stroke-dasharray="8 4" opacity="0.3"/>
+          <circle cx="60" cy="60" r="45" fill="#0D2E50" stroke="#00B4D8" stroke-width="1.5" opacity="0.6"/>
+          <!-- Stethoscope shape -->
+          <path d="M40 35 Q40 55 55 62 Q70 69 70 85 Q70 95 60 95 Q50 95 50 85" stroke="#00B4D8" stroke-width="4" stroke-linecap="round" fill="none"/>
+          <circle cx="60" cy="97" r="5" fill="#E63946"/>
+          <circle cx="38" cy="33" r="5" fill="#00B4D8"/>
+          <circle cx="52" cy="33" r="5" fill="#00B4D8"/>
+          <line x1="38" y1="28" x2="38" y2="22" stroke="#00B4D8" stroke-width="3" stroke-linecap="round"/>
+          <line x1="52" y1="28" x2="52" y2="22" stroke="#00B4D8" stroke-width="3" stroke-linecap="round"/>
+          <line x1="38" y1="22" x2="52" y2="22" stroke="#00B4D8" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+        <div class="pulse-ring pulse-ring--1"></div>
+        <div class="pulse-ring pulse-ring--2"></div>
+      </div>
+      <!-- Heartbeat SVG line -->
+      <svg class="heartbeat" viewBox="0 0 300 60" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <polyline class="heartbeat__line" points="0,30 50,30 65,10 75,50 85,30 110,30 125,5 135,55 145,30 300,30" stroke="#E63946" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </svg>
+    </div>
+    <div class="scroll-hint">
+      <span>Scroll</span>
+      <div class="scroll-hint__arrow"></div>
+    </div>
+  </section>
+
+  <!-- SECTION 2 — ABOUT -->
+  <section class="section section--dark" id="about">
+    <div class="about__left">
+      <div class="doctor-card">
+        <div class="doctor-card__img-wrap">
+          <div class="doctor-card__avatar">
+            <svg viewBox="0 0 120 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="10" y="60" width="100" height="70" rx="12" fill="#00B4D8" opacity="0.15"/>
+              <circle cx="60" cy="45" r="30" fill="#00B4D8" opacity="0.25"/>
+              <circle cx="60" cy="42" r="22" fill="#1A4A7A"/>
+              <ellipse cx="60" cy="43" rx="14" ry="16" fill="#2A6090"/>
+              <circle cx="54" cy="40" r="3" fill="#00B4D8"/>
+              <circle cx="66" cy="40" r="3" fill="#00B4D8"/>
+              <path d="M52 50 Q60 56 68 50" stroke="#00B4D8" stroke-width="2" stroke-linecap="round" fill="none"/>
+              <rect x="30" y="75" width="60" height="50" rx="8" fill="#1A4A7A"/>
+              <rect x="45" y="68" width="30" height="15" rx="4" fill="#2A6090"/>
+              <!-- lab coat cross -->
+              <rect x="56" y="82" width="8" height="20" rx="2" fill="#00B4D8" opacity="0.6"/>
+              <rect x="51" y="88" width="18" height="8" rx="2" fill="#00B4D8" opacity="0.6"/>
+            </svg>
+          </div>
+        </div>
+        <div class="doctor-card__badge">
+          <span class="badge__num">20+</span>
+          <span class="badge__text">Years Experience</span>
+        </div>
+      </div>
+    </div>
+    <div class="about__right">
+      <p class="section__tag">About the Doctor</p>
+      <h2 class="section__title about__title">Dr. Aryan Mehta</h2>
+      <p class="about__role">MD, FACC — Cardiologist & Internal Medicine</p>
+      <p class="about__bio">With over two decades of dedicated practice, Dr. Mehta has helped thousands of patients lead healthier, fuller lives. His approach blends cutting-edge diagnostics with genuinely empathetic patient care.</p>
+      <div class="credentials">
+        <div class="credential" data-index="0">
+          <div class="credential__icon">🎓</div>
+          <div>
+            <strong>AIIMS New Delhi</strong>
+            <p>MBBS & MD — Gold Medalist</p>
+          </div>
+        </div>
+        <div class="credential" data-index="1">
+          <div class="credential__icon">🏥</div>
+          <div>
+            <strong>Johns Hopkins Fellow</strong>
+            <p>Cardiovascular Medicine</p>
+          </div>
+        </div>
+        <div class="credential" data-index="2">
+          <div class="credential__icon">📋</div>
+          <div>
+            <strong>10,000+ Patients</strong>
+            <p>Successfully treated</p>
+          </div>
+        </div>
+        <div class="credential" data-index="3">
+          <div class="credential__icon">🏆</div>
+          <div>
+            <strong>Excellence Award</strong>
+            <p>IMA Healthcare 2023</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 3 — SERVICES -->
+  <section class="section" id="services">
+    <div class="services__header">
+      <p class="section__tag">What We Offer</p>
+      <h2 class="section__title">Comprehensive Medical Services</h2>
+      <p class="services__sub">From routine check-ups to advanced diagnostics — complete care under one roof.</p>
+    </div>
+    <div class="services__grid">
+      <div class="service-card" data-delay="0">
+        <div class="service-card__icon">❤️</div>
+        <h3>Cardiology</h3>
+        <p>Advanced heart care including ECG, echo, stress tests, and cardiac consultations.</p>
+        <span class="service-card__tag">Heart Health</span>
+      </div>
+      <div class="service-card" data-delay="1">
+        <div class="service-card__icon">🫁</div>
+        <h3>Pulmonology</h3>
+        <p>Diagnosis and treatment of respiratory conditions including asthma, COPD, and more.</p>
+        <span class="service-card__tag">Lung Care</span>
+      </div>
+      <div class="service-card" data-delay="2">
+        <div class="service-card__icon">🧠</div>
+        <h3>Neurology</h3>
+        <p>Expert neurological assessments for headaches, migraines, nerve disorders, and epilepsy.</p>
+        <span class="service-card__tag">Brain & Nerves</span>
+      </div>
+      <div class="service-card" data-delay="3">
+        <div class="service-card__icon">🩺</div>
+        <h3>General Medicine</h3>
+        <p>Comprehensive health evaluations, preventive care, and chronic disease management.</p>
+        <span class="service-card__tag">Preventive Care</span>
+      </div>
+      <div class="service-card" data-delay="4">
+        <div class="service-card__icon">🔬</div>
+        <h3>Diagnostics</h3>
+        <p>In-house lab testing, imaging, and advanced pathology for quick, accurate results.</p>
+        <span class="service-card__tag">Lab & Imaging</span>
+      </div>
+      <div class="service-card" data-delay="5">
+        <div class="service-card__icon">💊</div>
+        <h3>Pharmacology</h3>
+        <p>Personalized medication management and prescription services with follow-up care.</p>
+        <span class="service-card__tag">Medication</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 4 — TESTIMONIALS -->
+  <section class="section section--dark" id="testimonials">
+    <p class="section__tag">Patient Stories</p>
+    <h2 class="section__title">What Our Patients Say</h2>
+    <div class="testimonials__track-wrap">
+      <div class="testimonials__track" id="testimonialTrack">
+        <div class="testimonial-card">
+          <div class="testimonial-card__stars">★★★★★</div>
+          <p class="testimonial-card__text">"Dr. Mehta's thorough approach to my cardiac evaluation gave me complete peace of mind. His clear explanation and follow-up care is second to none."</p>
+          <div class="testimonial-card__author">
+            <div class="author__avatar">R</div>
+            <div>
+              <strong>Rahul Sharma</strong>
+              <span>Cardiac Patient · Mumbai</span>
+            </div>
+          </div>
+        </div>
+        <div class="testimonial-card">
+          <div class="testimonial-card__stars">★★★★★</div>
+          <p class="testimonial-card__text">"I've been visiting for 5 years now. The clinic's warmth, professionalism, and the doctor's genuine care make every visit stress-free."</p>
+          <div class="testimonial-card__author">
+            <div class="author__avatar">P</div>
+            <div>
+              <strong>Priya Nair</strong>
+              <span>General Medicine · Pune</span>
+            </div>
+          </div>
+        </div>
+        <div class="testimonial-card">
+          <div class="testimonial-card__stars">★★★★★</div>
+          <p class="testimonial-card__text">"Finally a doctor who listens! Dr. Mehta diagnosed my condition after years of uncertainty. I feel healthier and more in control than ever."</p>
+          <div class="testimonial-card__author">
+            <div class="author__avatar">A</div>
+            <div>
+              <strong>Anil Kapoor</strong>
+              <span>Pulmonology · Delhi</span>
+            </div>
+          </div>
+        </div>
+        <div class="testimonial-card">
+          <div class="testimonial-card__stars">★★★★★</div>
+          <p class="testimonial-card__text">"The diagnostic team is incredibly efficient. Results were back within hours and the doctor called personally to explain everything. Outstanding service."</p>
+          <div class="testimonial-card__author">
+            <div class="author__avatar">S</div>
+            <div>
+              <strong>Sunita Patel</strong>
+              <span>Diagnostics · Bangalore</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="testimonials__dots" id="testimonialDots">
+      <button class="dot dot--active" data-index="0"></button>
+      <button class="dot" data-index="1"></button>
+      <button class="dot" data-index="2"></button>
+      <button class="dot" data-index="3"></button>
+    </div>
+    <div class="stats-row">
+      <div class="stat">
+        <span class="stat__num" data-target="10000">0</span><span class="stat__unit">+</span>
+        <p>Patients Treated</p>
+      </div>
+      <div class="stat">
+        <span class="stat__num" data-target="20">0</span><span class="stat__unit">+</span>
+        <p>Years Experience</p>
+      </div>
+      <div class="stat">
+        <span class="stat__num" data-target="98">0</span><span class="stat__unit">%</span>
+        <p>Patient Satisfaction</p>
+      </div>
+      <div class="stat">
+        <span class="stat__num" data-target="15">0</span><span class="stat__unit">+</span>
+        <p>Specializations</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECTION 5 — CONTACT -->
+  <section class="section" id="contact">
+    <div class="contact__left">
+      <p class="section__tag">Get In Touch</p>
+      <h2 class="section__title">Book Your <span class="accent">Appointment</span></h2>
+      <p class="contact__sub">Take control of your health today. Fill out the form and our team will confirm your slot within 2 hours.</p>
+      <div class="contact__info">
+        <div class="info-item">
+          <span class="info-item__icon">📍</span>
+          <div>
+            <strong>Address</strong>
+            <p>42, Health Avenue, Bandra West, Mumbai 400050</p>
+          </div>
+        </div>
+        <div class="info-item">
+          <span class="info-item__icon">📞</span>
+          <div>
+            <strong>Phone</strong>
+            <p>+91 98765 43210</p>
+          </div>
+        </div>
+        <div class="info-item">
+          <span class="info-item__icon">⏰</span>
+          <div>
+            <strong>Hours</strong>
+            <p>Mon–Sat: 9AM – 7PM</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="contact__right">
+      <form class="contact-form" id="contactForm">
+        <div class="form-group">
+          <label for="name">Full Name</label>
+          <input type="text" id="name" placeholder="John Doe" required />
+          <span class="form-line"></span>
+        </div>
+        <div class="form-group">
+          <label for="phone">Phone Number</label>
+          <input type="tel" id="phone" placeholder="+91 98765 43210" required />
+          <span class="form-line"></span>
+        </div>
+        <div class="form-group">
+          <label for="service">Service Required</label>
+          <select id="service" required>
+            <option value="">Select a service</option>
+            <option>Cardiology Consultation</option>
+            <option>General Check-up</option>
+            <option>Pulmonology</option>
+            <option>Neurology</option>
+            <option>Diagnostics</option>
+          </select>
+          <span class="form-line"></span>
+        </div>
+        <div class="form-group">
+          <label for="date">Preferred Date</label>
+          <input type="date" id="date" required />
+          <span class="form-line"></span>
+        </div>
+        <button type="submit" class="btn btn--primary btn--full" id="submitBtn">
+          <span class="btn__text">Confirm Appointment</span>
+          <span class="btn__pulse"></span>
+        </button>
+        <p class="form__note">✓ Free consultation for first-time patients</p>
+      </form>
+    </div>
+  </section>
+
+  <!-- GSAP + ScrollTrigger -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
